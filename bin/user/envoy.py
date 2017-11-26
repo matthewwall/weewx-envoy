@@ -66,17 +66,23 @@ def logerr(msg):
     logmsg(syslog.LOG_ERR, msg)
 
 
+# maximum number of solar panels that we can track
+MAX_PANELS = 100
+
 schema = [('dateTime',   'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
           ('usUnits',    'INTEGER NOT NULL'),
           ('interval',   'INTEGER NOT NULL'),
-          ('grid_power',  'REAL'),   # Watt - instantaneious
-          ('grid_energy', 'REAL')]   # kWh - delta since last
+          ('power',  'REAL'),   # Watt - instantaneious
+          ('energy', 'REAL')]   # kWh - delta since last
+# power and energy from each panel
+for x in range(1, MAX_PANELS):
+    schema.extend(('power_%d' % x, 'REAL'), ('energy_%d' % x, 'REAL'))
 
-weewx.units.obs_group_dict['grid_power'] = 'group_power' # watt
-weewx.units.obs_group_dict['grid_energy'] = 'group_energy' # watt-hour
+weewx.units.obs_group_dict['power'] = 'group_power' # watt
+weewx.units.obs_group_dict['energy'] = 'group_energy' # watt-hour
 try:
     # weewx prior to 3.7.0.  for 3.7.0+ this goes in the weewx config file
-    weewx.accum.extract_dict['grid_energy'] = weewx.accum.Accum.sum_extract
+    weewx.accum.extract_dict['energy'] = weewx.accum.Accum.sum_extract
 except AttributeError:
     pass
 
@@ -91,6 +97,9 @@ class EnvoyConfigurationEditor(weewx.drivers.AbstractConfEditor):
     # Hostname or IP address of the Envoy
     host = 0.0.0.0
 
+    # Envoy serial number
+    serial = 00000000
+
     # The driver to use:
     driver = user.envoy
 """
@@ -98,7 +107,9 @@ class EnvoyConfigurationEditor(weewx.drivers.AbstractConfEditor):
     def prompt_for_settings(self):
         print "Specify the hostname or address of the Envoy"
         host = self._prompt('host', '0.0.0.0')
-        return {'host': host}
+        print "Specify the Envoy serial number"
+        serial = self._prompt('serial', '0.0.0.0')
+        return {'host': host, 'serial': serial}
 
 
 class EnvoyDriver(weewx.drivers.AbstractDevice):
@@ -106,11 +117,13 @@ class EnvoyDriver(weewx.drivers.AbstractDevice):
     def __init__(self, **stn_dict):
         loginf('driver version is %s' % DRIVER_VERSION)
         host = None
+        serial = None
         try:
             host = stn_dict['host']
+            serial = stn_dict['serial']
         except KeyError, e:
             raise Exception("unspecified parameter %s" % e)
-        self.model = stn_dict.get("model", "Envoy")
+        self.model = stn_dict.get("model", "Envoy-S")
         self.max_tries = int(stn_dict.get('max_tries', 5))
         self.retry_wait = int(stn_dict.get('retry_wait', 30))
         self.polling_interval = int(stn_dict.get('polling_interval', 300))
