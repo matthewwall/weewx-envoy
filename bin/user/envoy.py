@@ -135,6 +135,7 @@ class EnvoyDriver(weewx.drivers.AbstractDevice):
     def closePort(self):
         self.envoy = None
 
+    @property
     def hardware_name(self):
         return self.model
 
