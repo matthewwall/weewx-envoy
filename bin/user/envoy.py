@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-# Copyright 2017 Matthew Wall, all rights reserved
+# Copyright 2017 Matthew Wall
+# Distributed under the terms of the GNU Public License (GPLv3)
 """
 Driver to collect data from the Enphase Envoy.
 

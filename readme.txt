@@ -1,4 +1,6 @@
 weewx-envoy
+Copyright 2017 Matthew Wall
+Distributed under terms of the GPLv3
 
 This is a driver for weewx that collects data from the Enphase Envoy.
 The Envoy is a network interface to inverters on a photovoltaic system.
