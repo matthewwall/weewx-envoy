@@ -4,33 +4,65 @@
 """
 Driver to collect data from the Enphase Envoy.
 
-The official local API is pretty poor:
-http://hostname/api/v1/production
+The official local API is really sparse:
 
-Luckily there are other endpoints with more information:
+  http://hostname/api/v1/production
 
-http://hostname/home.json
-http://hostname/home.json
-http://hostname/inventory.json
-http://hostname/api/v1/production/inverters
+This provides the following information:
 
-username:password are envoy:nnnnnn where nnnnnn are last 6 digits of serial
-uses digest authentication?
+  {'wattHoursLifetime': 619629, 'wattHoursToday': 3850,
+   'wattsNow': 0, 'wattHoursSevenDays': 80440}
 
-/home?locale=en&classic=1
-/home?locale=en&classic=2
+Enphase says that the inverters report every 5 minutes, so they suggest that
+there is no point in querying more often.
 
-/production.json?details=1
-/production.json?details=2
+Other endpoints with more information:
 
-/info
-/ivp/meters
+  /api/v1/production/inverters
+  /home.json
+  /inventory.json
+  /home?locale=en&classic=1
+  /home?locale=en&classic=2
+  /production.json
+  /production.json?details=1
+  /production.json?details=2
+  /info
+  /ivp/meters
+  /ivp/tpm/tpmstatus
+  /inv
 
+Authentication:
 
+Some of the endpoints require authorization as username/password using digest
+authentication.  The username:password are envoy:nnnnnn where nnnnnn are last
+6 digits of serial.
 
-Thanks to thecomputerperson:
+If you are using curl to explore/verify the endpoints, use the following:
+
+  curl --user envoy:nnnnnn --digest http://hostname/api/v1/production/inverters
+
+The envoy:nnnnnn credentials do not work for all of the endpoints that require
+authentication.
+
+Credits:
+
+Thanks to the following for publishing what they learned:
+
+eric sandeen (2010):
+
+https://sandeen.net/wordpress/energy/solar-monitoring/
+
+nika (2014):
+
+https://github.com/nikagl/GetEnvoyData
+
+thecomputerperson (2016):
 
 https://thecomputerperson.wordpress.com/2016/08/03/enphase-envoy-s-data-scraping/
+
+ghawken (2017):
+
+https://github.com/Ghawken/IndigoEnphaseEnvoy
 """
 
 from __future__ import with_statement
@@ -70,14 +102,16 @@ def logerr(msg):
 # maximum number of solar panels that we can track
 MAX_PANELS = 100
 
-schema = [('dateTime',   'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
-          ('usUnits',    'INTEGER NOT NULL'),
-          ('interval',   'INTEGER NOT NULL'),
-          ('power',  'REAL'),   # Watt - instantaneious
-          ('energy', 'REAL')]   # kWh - delta since last
+schema = [('dateTime', 'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
+          ('usUnits', 'INTEGER NOT NULL'),
+          ('interval', 'INTEGER NOT NULL'),
+          ('energy_total', 'REAL'), # kWh
+          ('power', 'REAL'), # Watt - instantaneious
+          ('energy', 'REAL')] # kWh - delta since last
 # power and energy from each panel
-for x in range(1, MAX_PANELS):
-    schema.extend(('power_%d' % x, 'REAL'), ('energy_%d' % x, 'REAL'))
+for x in range(1, MAX_PANELS + 1):
+    schema.extend(('power_%d' % x, 'REAL'))
+    schema.extend(('energy_%d' % x, 'REAL'))
 
 weewx.units.obs_group_dict['power'] = 'group_power' # watt
 weewx.units.obs_group_dict['energy'] = 'group_energy' # watt-hour
@@ -109,7 +143,7 @@ class EnvoyConfigurationEditor(weewx.drivers.AbstractConfEditor):
         print "Specify the hostname or address of the Envoy"
         host = self._prompt('host', '0.0.0.0')
         print "Specify the Envoy serial number"
-        serial = self._prompt('serial', '0.0.0.0')
+        serial = self._prompt('serial', '00000000')
         return {'host': host, 'serial': serial}
 
 
@@ -197,11 +231,32 @@ class Envoy(object):
 
 
 if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(description='Envoy data query')
-    parser.add_argument('host', help='host name or address')
-    args = parser.parse_args()
-    envoy = Envoy(args.host)
+    import optparse
+
+    usage = """%prog [--debug] [--help] [--version]
+                     --host=HOSTNAME"""
+
+    syslog.openlog('envoy', syslog.LOG_PID | syslog.LOG_CONS)
+    syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_INFO))
+    parser = optparse.OptionParser(usage=usage)
+    parser.add_option('--version', action='store_true',
+                      help='display driver version')
+    parser.add_option('--debug', action='store_true',
+                      help='display diagnostic information while running')
+    parser.add_option('--host', default='localhost',
+                      help='hostname or IP address of the envoy')
+    (options, args) = parser.parse_args()
+
+    if options.version:
+        print "%s driver version %s" % (DRIVER_NAME, DRIVER_VERSION)
+        exit(1)
+
+    if options.debug:
+        syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_DEBUG))
+
+    envoy = Envoy(options.host)
     print "query: %s" % envoy.url
-    data = envoy.get_data()
-    print "%s" % data
+    while True:
+        data = envoy.get_data()
+        print "%s: %s" % (int(time.time()), data)
+        time.sleep(30)
