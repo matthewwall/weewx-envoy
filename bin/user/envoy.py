@@ -4,7 +4,18 @@
 """
 Driver to collect data from the Enphase Envoy.
 
+The Envoy comes in at least two flavors: the ovular Envoy and the hard-cornered
+Envoy-S.  There are multiple firmware versions for each type of hardware.
+
+This driver is known to work with the Envoy-S with the following:
+
+  software_version: D4.5.82 (b97ae7)
+
 The official local API is really sparse:
+
+  http://www2.enphase.com/global/files/Envoy-API-Technical-Brief.pdf
+
+It is a single endpoint:
 
   http://hostname/api/v1/production
 
@@ -14,22 +25,32 @@ This provides the following information:
    'wattsNow': 0, 'wattHoursSevenDays': 80440}
 
 Enphase says that the inverters report every 5 minutes, so they suggest that
-there is no point in querying more often.
+there is no point in querying more often.  Sandeen reports that querying the
+envoy too frequently will prevent it from uploading data to the Enphase
+servers.
 
-Other endpoints with more information:
+As of mid-2017, Enphase discourages the use of the local v1 API and encourages
+everyone to use the v2 web-based API.
+
+FWIW, there are other local endpoints with more information.  However, given
+the Enphase stance above, these might go away with a firmware update.  Beware.
 
   /api/v1/production/inverters
   /home.json
   /inventory.json
-  /home?locale=en&classic=1
-  /home?locale=en&classic=2
   /production.json
+  /info
+  /inv
+
+  /home?classic=1
+  /home?classic=2
+  /home?locale=en
+
   /production.json?details=1
   /production.json?details=2
-  /info
+
   /ivp/meters
   /ivp/tpm/tpmstatus
-  /inv
 
 Authentication:
 
@@ -222,7 +243,17 @@ class EnvoyDriver(weewx.drivers.AbstractDevice):
 class Envoy(object):
 
     def __init__(self, host):
+        self.host = host
         self.url = "http://%s/api/v1/production" % host
+
+    def get_info(self):
+        data = []
+        for u in ['/home.json', '/inventory.json', '/production.json',
+                  '/inv', '/info']:
+            url = "http://%s%s" % (self.host, u)
+            resp = urllib.urlopen(url)
+            data.append(resp.read())
+        return '\n'.join(data)
 
     def get_data(self):
         resp = urllib.urlopen(self.url)
@@ -243,6 +274,8 @@ if __name__ == '__main__':
                       help='display driver version')
     parser.add_option('--debug', action='store_true',
                       help='display diagnostic information while running')
+    parser.add_option('--info', action='store_true',
+                      help='display device and firmware details')
     parser.add_option('--host', default='localhost',
                       help='hostname or IP address of the envoy')
     (options, args) = parser.parse_args()
@@ -255,6 +288,11 @@ if __name__ == '__main__':
         syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_DEBUG))
 
     envoy = Envoy(options.host)
+    if options.info:
+        info = envoy.get_info()
+        print info
+        exit(0)
+
     print "query: %s" % envoy.url
     while True:
         data = envoy.get_data()
